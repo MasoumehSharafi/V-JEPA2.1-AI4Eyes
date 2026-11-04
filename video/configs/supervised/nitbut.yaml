@@ -1,0 +1,34 @@
+# NITBUT: single-class temporal localization (one "tear breakup" event per
+# gradable video; ungradable videos are background/zero-event, kept not
+# dropped). Frozen V-JEPA2.1 ViT-L/16 backbone + trained ActionFormer-style
+# head (heads.py).
+test_type: NITBUT
+classes: [NITBUT]
+annotations_filename: nitbut.json  # under paths().annotations_dir
+
+window_frames: 160
+resolution: 224
+eval_overlap_ratio: 0.5
+
+batch_size: 2
+num_workers: 4
+epochs: 60
+lr: 1.0e-4
+weight_decay: 0.05
+log_interval: 20
+checkpoint_interval: 5
+
+backbone:
+  model_name: vjepa2_1_vit_large_384
+  checkpoint_key: ema_encoder
+  num_frames: 16
+  patch_size: 16
+  tubelet_size: 2
+  freeze: true
+  # Omit checkpoint_path/repo_path to use the defaults from config.paths()
+  # (VJEPA2_CHECKPOINT / VJEPA2_REPO env vars) -- set explicitly here to
+  # pin this config to the domain-adapted encoder once you have one, e.g.:
+  # checkpoint_path: ./checkpoints/vjepa_dapt_encoder.pt
+
+head:
+  head_channels: 512

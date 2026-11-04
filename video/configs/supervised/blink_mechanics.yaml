@@ -1,0 +1,31 @@
+# Blink Mechanics: TWO classes (Blink Complete / Blink Incomplete), many
+# instances per video. Ground truth instances are short (see
+# prepare_data.py --event-window-seconds) pseudo-segments centered on each
+# point-in-time blink keyframe -- there is no true start/end span in the
+# source annotations.
+test_type: BLINK_MECHANICS
+classes: ["Blink Complete", "Blink Incomplete"]
+annotations_filename: blink_mechanics.json
+
+window_frames: 160
+resolution: 224
+eval_overlap_ratio: 0.5
+
+batch_size: 2
+num_workers: 4
+epochs: 60
+lr: 1.0e-4
+weight_decay: 0.05
+log_interval: 20
+checkpoint_interval: 5
+
+backbone:
+  model_name: vjepa2_1_vit_large_384
+  checkpoint_key: ema_encoder
+  num_frames: 16
+  patch_size: 16
+  tubelet_size: 2
+  freeze: true
+
+head:
+  head_channels: 512
