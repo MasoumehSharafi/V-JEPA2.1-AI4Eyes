@@ -1,0 +1,69 @@
+# ---- Secrets / credentials ----
+.env
+.env.*
+*.pem
+*.key
+aws_credentials*
+credentials.json
+
+# ---- Patient data / PHI: never commit ----
+# Any CSV/JSON/parquet that could carry patient ids, exam ids, labels,
+# S3 keys, predictions, or per-eye metrics.
+*.csv
+*.parquet
+*.jsonl
+manifests/
+data/
+splits/
+annotations/
+
+# ---- Media ----
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.png
+*.jpg
+*.jpeg
+*.npy
+*.npz
+frames/
+cache/
+
+# ---- Checkpoints / weights ----
+*.pt
+*.pth
+*.torch
+*.safetensors
+*.ckpt
+checkpoints/
+pretrained/
+
+# ---- Logs / run outputs ----
+*.log
+outputs/
+runs/
+wandb/
+lightning_logs/
+
+# ---- Cloned external repos (setup_vjepa.sh clones these at runtime) ----
+/vjepa2/
+
+# ---- Python ----
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+build/
+dist/
+*.egg
+.venv/
+venv/
+
+# ---- OS / editor ----
+.DS_Store
+.idea/
+.vscode/

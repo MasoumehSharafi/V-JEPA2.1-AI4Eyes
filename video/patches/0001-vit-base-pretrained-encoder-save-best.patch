@@ -1,0 +1,152 @@
+diff --git a/app/vjepa_2_1/train.py b/app/vjepa_2_1/train.py
+index f8fe594..7daecba 100644
+--- a/app/vjepa_2_1/train.py
++++ b/app/vjepa_2_1/train.py
+@@ -64,8 +64,10 @@ def main(args, resume_preempt=False):
+     cfgs_meta = args.get("meta")
+     load_model = cfgs_meta.get("load_checkpoint") or resume_preempt
+     r_file = cfgs_meta.get("read_checkpoint", None)
++    pretrained_encoder = cfgs_meta.get("pretrained_encoder", None)
+     seed = cfgs_meta.get("seed", _GLOBAL_SEED)
+     save_every_freq = cfgs_meta.get("save_every_freq", -1)
++    save_best = cfgs_meta.get("save_best", False)
+     skip_batches = cfgs_meta.get("skip_batches", -1)
+     use_sdpa = cfgs_meta.get("use_sdpa", False)
+     sync_gc = cfgs_meta.get("sync_gc", False)
+@@ -114,14 +116,16 @@ def main(args, resume_preempt=False):
+     normalize_predictor = cfgs_model.get("normalize_predictor", False)
+     modality_embedding = cfgs_model.get("modality_embedding", False)
+     levels_predictor = cfgs_model.get("levels_predictor", 4)
+-    if model_name == "vit_large":
++    if model_name == "vit_base":
++        embed_dim_encoder = 768
++    elif model_name == "vit_large":
+         embed_dim_encoder = 1024
+     elif model_name == "vit_giant_xformers":
+         embed_dim_encoder = 1408
+     elif model_name == "vit_gigantic_xformers":
+         embed_dim_encoder = 1664
+     else:
+-        print("Model name not recognized :(")
++        raise ValueError(f"Model name not recognized: {model_name}")
+ 
+     # -- DATA
+     cfgs_data = args.get("data")
+@@ -133,11 +137,15 @@ def main(args, resume_preempt=False):
+     batch_size = cfgs_data.get("batch_size")
+     tubelet_size = cfgs_data.get("tubelet_size")
+     fps = cfgs_data.get("fps")
++    frame_sample_rate = cfgs_data.get("frame_sample_rate", None)
++    if fps is not None and frame_sample_rate is not None:
++        raise ValueError("Set either fps or frame_sample_rate, not both.")
+     crop_size = cfgs_data.get("crop_size", 224)
+     patch_size = cfgs_data.get("patch_size")
+     grid_size = crop_size // patch_size
+     pin_mem = cfgs_data.get("pin_mem", False)
+     num_workers = cfgs_data.get("num_workers", 1)
++    persistent_workers = cfgs_data.get("persistent_workers", False)
+ 
+     # -- IMG DATA
+     cfgs_img_data = args.get("img_data")
+@@ -300,6 +308,18 @@ def main(args, resume_preempt=False):
+     latest_file = "latest.pth.tar"
+     latest_path = os.path.join(folder, latest_file)
+ 
++    best_path = os.path.join(folder, "best.pth.tar")
++    best_loss_path = os.path.join(folder, "best_loss.txt")
++    best_loss = float("inf")
++
++    if save_best and os.path.exists(best_loss_path):
++        try:
++            with open(best_loss_path) as best_loss_file:
++                best_loss = float(best_loss_file.read().strip())
++            logger.info("Restored best SSL loss: %.6f" % best_loss)
++        except Exception as e:
++            logger.warning(f"Could not restore best SSL loss: {e}")
++
+     load_path = None
+     if load_model:
+         if is_anneal:
+@@ -358,6 +378,42 @@ def main(args, resume_preempt=False):
+         interpolate_rope=interpolate_rope,
+         modality_embedding=modality_embedding,
+     )
++    if load_path is None and pretrained_encoder is not None:
++        if not os.path.isfile(pretrained_encoder):
++            raise FileNotFoundError(
++                f"Pretrained encoder not found: {pretrained_encoder}"
++            )
++
++        logger.info(
++            f"Loading pretrained EMA encoder from {pretrained_encoder}"
++        )
++        pretrained_checkpoint = torch.load(
++            pretrained_encoder,
++            map_location="cpu",
++            weights_only=False,
++        )
++
++        if "ema_encoder" not in pretrained_checkpoint:
++            raise KeyError(
++                "Checkpoint does not contain 'ema_encoder'."
++            )
++
++        pretrained_state = {
++            (
++                key[len("module."):]
++                if key.startswith("module.")
++                else key
++            ): value
++            for key, value
++            in pretrained_checkpoint["ema_encoder"].items()
++        }
++
++        encoder.load_state_dict(pretrained_state, strict=True)
++        logger.info(
++            "Initialized context encoder from pretrained EMA encoder."
++        )
++        del pretrained_checkpoint, pretrained_state
++
+     target_encoder = copy.deepcopy(encoder)
+ 
+     if compile_model:
+@@ -394,6 +450,7 @@ def main(args, resume_preempt=False):
+         # clip_len=clip_len,
+         dataset_fpcs=dataset_fpcs,
+         fps=fps,
++        frame_sample_rate=frame_sample_rate,
+         transform=transform,
+         rank=data_rank,
+         world_size=data_world_size,
+@@ -401,6 +458,7 @@ def main(args, resume_preempt=False):
+         collator=mask_collator,
+         num_workers=num_workers,
+         pin_mem=pin_mem,
++        persistent_workers=persistent_workers,
+         log_dir=None,
+     )
+     try:
+@@ -829,7 +887,22 @@ def main(args, resume_preempt=False):
+         logger.info("avg. loss %.3f" % loss_meter.avg)
+         if (epoch + 1) % CHECKPOINT_FREQ == 0 or epoch == (num_epochs - 1):
+             save_checkpoint(epoch + 1, latest_path)
+-            if save_every_freq > 0 and (epoch + 1) % save_every_freq == 0:
++            epoch_loss = float(loss_meter.avg)
++
++    if save_best and epoch_loss < best_loss:
++        best_loss = epoch_loss
++        save_checkpoint(epoch + 1, best_path)
++
++        if rank == 0:
++            with open(best_loss_path, "w") as best_loss_file:
++                best_loss_file.write(f"{best_loss:.10f}\n")
++
++        logger.info(
++            "New best SSL checkpoint: epoch %d, loss %.6f"
++            % (epoch + 1, best_loss)
++        )
++
++    if save_every_freq > 0 and (epoch + 1) % save_every_freq == 0:
+                 save_every_file = f"e{epoch}.pth.tar"
+                 save_every_path = os.path.join(folder, save_every_file)
+                 save_checkpoint(epoch + 1, save_every_path)
