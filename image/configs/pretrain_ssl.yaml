@@ -1,0 +1,38 @@
+# Continued SSL pretraining of V-JEPA 2.1 ViT-L/16 (MIT licence) on the unlabelled images of every image sign,
+# pooled: staining (cornea crop), meniscus, meibography (lower + upper), lid margin, lower-lid frames of the
+# lipid-layer videos. Every labelled exam (the labels CSV) is excluded. Manifest: $AI4EYES_SSL_MANIFEST
+# (ai4eyes_image.pretrain.manifest). Checkpoint: ONE file <out-dir>/<name>_last.pt.
+#   python -m ai4eyes_image.pretrain.vjepa_ssl configs/pretrain_ssl.yaml --out-dir <dir> [--mirror-dir <dir>] [--resume]
+name: vjepa_dapt_all_signs_v192      # -> <name>_last.pt + <name>_log.csv
+seed: 0
+res: 384                             # native: the predictor places tokens on its fixed 24×24 grid
+batch_size: 16
+epochs: 50                           # 2,608 images -> 163 steps/epoch, ~8.1k steps, ~2.7 h on one A10G
+warmup_pred_epochs: 3                # the new 1024-d predictor heads train alone first (encoder frozen)
+save_every: 5                        # epochs between overwrites of the last checkpoint (+ the final epoch)
+mirror_every: 10                     # epochs between copies of it to --mirror-dir (+ the final epoch)
+amp: true
+ema: 0.999                           # target encoder = EMA of the context encoder
+ctx_loss_weight: 0.5                 # V-JEPA 2.1 dense context loss weight for images
+
+mask:                                # V-JEPA 2.1 image mask: 10 blocks × 15 % area, aspect 0.75–1.5
+  n_blocks: 10
+  scale: 0.15
+  aspect: [0.75, 1.5]
+
+data:
+  num_workers: 8
+
+augment:                             # RandomResizedCrop inside each image's crop box, h-flip
+  rrc_scale: [0.2, 1.0]
+  rrc_ratio: [0.75, 1.3333]
+  hflip_p: 0.5
+
+optim:
+  lr: 2.0e-5                         # encoder peak (continued pretraining of a converged model: small)
+  lr_predictor: 2.0e-4               # predictor (body pretrained, heads new)
+  final_lr: 1.0e-6
+  warmup_epochs: 5
+  weight_decay: 0.04
+  betas: [0.9, 0.999]
+  grad_clip: 1.0

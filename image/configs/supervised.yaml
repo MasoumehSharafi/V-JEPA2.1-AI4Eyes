@@ -1,0 +1,58 @@
+# Supervised training of every image sign: LoRA + linear head on the frozen SSL V-JEPA 2.1 ViT-L encoder,
+# trained end-to-end (random head). The shared recipe is `defaults`; `signs` lists only what differs per sign.
+# Train on the train patients for max_epochs with 5 seeds; the epoch is chosen on val (mean over seeds of val
+# macro-F1, or val MAE for tear meniscus, 3-epoch smoothed); test is read once, at that epoch.
+#   python -m ai4eyes_image.train.supervised run configs/supervised.yaml [--signs ...]
+seeds: [0, 1, 2, 3, 4]       # training seed = 10000 + seed
+smooth_epochs: 3
+
+defaults:
+  model:
+    backbone_weights: vjepa2/vjepa_dapt_all_signs_v192_encoder.pt   # under $AI4EYES_CHECKPOINT_DIR (export_encoder.sh)
+    rank: 8
+    alpha: 16
+    lora_blocks: null        # LoRA on q, v of every block
+    lora_dropout: 0.0
+    pool: masked             # mean over the tokens inside the crop mask
+    head_dropout: 0.0
+    grad_checkpoint: false
+  train:
+    class_weight: sqrt_inv
+    label_smoothing: 0.0
+    batch_size: 8
+    max_epochs: 30
+    warmup_epochs: 3
+    head_freeze_epochs: 0
+    lr_adapter: 3.0e-4
+    lr_head: 1.0e-3
+    weight_decay: 0.05       # head
+    weight_decay_adapter: 0.05
+    grad_clip: 1.0
+    amp: true
+  augment:                   # train only; no blur / downscaling / vertical flip / cutout
+    hflip_p: 0.5
+    rotate_deg: 15.0
+    brightness: 0.10
+    contrast: 0.10
+    gamma: 0.15
+    green_gain: 0.0          # colour balance is the signal for most signs (redness, infrared meibography)
+
+signs:
+  corneal_staining:
+    model: {n_classes: 3}
+    augment: {green_gain: 0.10}   # fluorescein intensity varies between captures
+  hyperemia_nasal:
+    model: {n_classes: 3}
+  hyperemia_temporal:
+    model: {n_classes: 3}
+  meibography_lower:
+    model: {n_classes: 4}
+  meibography_upper:
+    model: {n_classes: 3}
+  upper_lid_margin:
+    model: {n_classes: 4}
+  lower_lid_margin:
+    model: {n_classes: 4}
+  tear_meniscus:                  # regression in mm, standardised with the train mean / sd
+    model: {n_classes: 1}
+    train: {loss: mse, class_weight: none}

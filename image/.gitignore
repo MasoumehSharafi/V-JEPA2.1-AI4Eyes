@@ -1,0 +1,24 @@
+# Patient data, weights and results never go into git.
+data/
+checkpoints/
+outputs/
+work/
+third_party/
+.env
+*.csv
+*.parquet
+*.npz
+*.npy
+*.pt
+*.pth
+*.torch
+*.safetensors
+*.png
+*.jpg
+*.jpeg
+*.mp4
+*.log
+*.out
+__pycache__/
+*.pyc
+.pytest_cache/
